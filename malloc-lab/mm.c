@@ -75,7 +75,7 @@ team_t team = {
 /* 힙 시작 포인터(global) */
 static char *heap_listp = NULL;
 
-/* 함수 프로토타입 */
+/* 함수 프롤토타입 */
 static void *coalesce(void *bp);          /* 인접 가용 블록 병합 */
 static void *find_fit(size_t asize);      /* 가용 블록 탐색 */
 static void place(void *bp, size_t asize);/* 블록 배치 및 분할 처리 */
@@ -135,16 +135,23 @@ static void *coalesce(void *bp)
     return bp;
 }
 
-/* find_fit: first-fit 전략으로 적당한 크기의 가용 블록 탐색 */
+/* find_fit: 적당한 크기의 가용 블록 탐색 */
 static void *find_fit(size_t asize)
 {
-    /* 힙의 프로로그 블록 다음부터 에필로그 전까지 순회 */
+    void *best_bp = NULL;           // 가장 적합한 블록 포인터
+    size_t best_size = (size_t)-1;  // 초기값: 가능한 최대값
+
     for (void *bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-        if (!GET_ALLOC(HDRP(bp)) && asize <= GET_SIZE(HDRP(bp))) {
-            return bp; /* 크기가 충분한 가용 블록 발견 */
+        size_t bsize = GET_SIZE(HDRP(bp));
+
+        if (!GET_ALLOC(HDRP(bp)) && asize <= bsize) {
+            if ((bsize - asize) < (best_size - asize)) {
+                best_size = bsize;
+                best_bp = bp;
+            }
         }
     }
-    return NULL; /* 적합한 블록 없으면 NULL 반환 */
+    return best_bp;  // NULL이거나 가장 잘 맞는 블록
 }
 
 /* place: 가용 블록 bp에 asize 크기로 할당, 남으면 분할 처리 */
@@ -168,7 +175,7 @@ static void place(void *bp, size_t asize)
     }
 }
 
-/* mm_init: 초기 힙 설정 및 프로로그/에필로그 블록 생성 */
+/* mm_init: 초기 힙 설정 및 프롤로그/에필로그 블록 생성 */
 int mm_init(void)
 {
     /* 초기 힙 영역 확보(4워드) */
@@ -177,13 +184,13 @@ int mm_init(void)
 
     /* 8바이트 정렬 패딩 */
     PUT(heap_listp, 0);
-    /* 프로로그 헤더(크기=8, 할당됨) */
+    /* 프롤로그 헤더(크기=8, 할당됨) */
     PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1));
-    /* 프로로그 푸터(크기=8, 할당됨) */
+    /* 프롤로그 푸터(크기=8, 할당됨) */
     PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1));
     /* 에필로그 헤더(크기=0, 할당됨) */
     PUT(heap_listp + (3 * WSIZE), PACK(0, 1));
-    /* heap_listp를 프로로그 블록의 페이로드 시작으로 이동 */
+    /* heap_listp를 프롤로그 블록의 페이로드 시작으로 이동 */
     heap_listp += (2 * WSIZE);
 
     /* 힙을 CHUNKSIZE 바이트 만큼 확장하여 첫 가용 블록 생성 */
@@ -192,36 +199,34 @@ int mm_init(void)
     return 0;
 }
 
-   
 /*
- * mm_malloc - Allocate a block by incrementing the brk pointer.
- *     Always allocate a block whose size is a multiple of the alignment.
+ * mm_malloc - brk 포인터를 증가시켜 블록을 할당합니다.
+ *     항상 정렬 단위(8바이트)의 배수 크기로 블록을 할당합니다.
  */
-/* Return a pointer to a block of at least <size> bytes. */
 void *mm_malloc(size_t size)
 {
-    size_t asize;        /* Adjusted block size                */
-    size_t extendsize;   /* Amount to extend heap if no fit    */
-    char  *bp;
+    size_t asize;        // 정렬 및 오버헤드 포함한 조정된 블록 크기
+    size_t extendsize;   // 적절한 블록이 없을 경우 힙을 확장할 크기
+    char  *bp;           // 할당된 블록 포인터
 
-    /* 1. Ignore zero-byte requests */
+    // 1. 요청 크기가 0일 경우 아무 것도 하지 않음
     if (size == 0)
         return NULL;
 
-    /* 2. Adjust block size to include overhead & alignment reqs */
-    if (size <= DSIZE)               /* 최소 블록 = header+footer+8B payload */
-        asize = 2 * DSIZE;           /* 16B */
+    // 2. 블록 크기를 헤더/푸터 오버헤드 포함하여 정렬 단위로 조정
+    if (size <= DSIZE)               // 최소 블록 크기: 8바이트 payload + 8바이트 헤더/푸터 = 16B
+        asize = 2 * DSIZE;
     else
-        asize = DSIZE * ((size + DSIZE + (DSIZE - 1)) / DSIZE);
+        asize = DSIZE * ((size + DSIZE + (DSIZE - 1)) / DSIZE); // 올림 정렬
 
-    /* 3. Search the free list for a fit (first-fit) */
+    // 3. 가용 블록 탐색 (first-fit)
     if ((bp = find_fit(asize)) != NULL) {
-        place(bp, asize);            /* 필요하면 분할 후 배치 */
+        place(bp, asize);            // 블록을 해당 위치에 배치하고 필요 시 분할
         return bp;
     }
 
-    /* 4. No fit found – extend the heap and place the block */
-    extendsize = MAX(asize, CHUNKSIZE);          /* 최소 CHUNKSIZE 만큼 확장 */
+    // 4. 적절한 블록이 없으면 힙을 확장한 뒤 블록을 배치
+    extendsize = MAX(asize, CHUNKSIZE); // 최소 CHUNKSIZE(4096바이트) 만큼 확장
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
         return NULL;
 
@@ -229,35 +234,36 @@ void *mm_malloc(size_t size)
     return bp;
 }
 
-
 /*
- * mm_free - Freeing a block does nothing.
+ * mm_free - 블록을 해제하고 인접한 가용 블록과 병합(coalesce)합니다.
  */
 void mm_free(void *bp)
 {
-    size_t size = GET_SIZE(HDRP(bp));
+    size_t size = GET_SIZE(HDRP(bp)); // 블록의 전체 크기 획득
 
-    PUT(HDRP(bp), PACK(size, 0));
-    PUT(FTRP(bp), PACK(size, 0));
-    coalesce(bp);
+    PUT(HDRP(bp), PACK(size, 0));     // 헤더를 가용 상태로 설정
+    PUT(FTRP(bp), PACK(size, 0));     // 푸터를 가용 상태로 설정
+    coalesce(bp);                     // 인접 가용 블록들과 병합
 }
 
 /*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ * mm_realloc - realloc을 malloc과 free 기반으로 구현
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
+    void *oldptr = ptr;      // 기존 블록 포인터
+    void *newptr;            // 새로 할당할 블록 포인터
+    size_t copySize;         // 복사할 데이터 크기
 
-    newptr = mm_malloc(size);
+    newptr = mm_malloc(size); // 새로운 크기로 할당 시도
     if (newptr == NULL)
         return NULL;
+
+    // 이전 블록의 크기를 얻어서 복사할 크기를 결정
     copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
     if (size < copySize)
         copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
+    memcpy(newptr, oldptr, copySize); // 데이터 복사
+    mm_free(oldptr);                  // 기존 블록 해제
     return newptr;
 }

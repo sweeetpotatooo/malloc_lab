@@ -138,20 +138,28 @@ static void *coalesce(void *bp)
 /* find_fit: 적당한 크기의 가용 블록 탐색 */
 static void *find_fit(size_t asize)
 {
-    void *best_bp = NULL;           // 가장 적합한 블록 포인터
-    size_t best_size = (size_t)-1;  // 초기값: 가능한 최대값
+    void *bp;
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+        if (!GET_ALLOC(HDRP(bp))) {
+            size_t bsize = GET_SIZE(HDRP(bp));
 
-    for (void *bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-        size_t bsize = GET_SIZE(HDRP(bp));
+            // 현재 블록이 이미 맞으면 바로 리턴
+            if (bsize >= asize)
+                return bp;
 
-        if (!GET_ALLOC(HDRP(bp)) && asize <= bsize) {
-            if ((bsize - asize) < (best_size - asize)) {
-                best_size = bsize;
-                best_bp = bp;
-            }
+            // 아니면 지연 coalescing 시도
+            void *newbp = coalesce(bp);
+            // coalesce 후 bp가 바뀔수도 있으니까 bp 갱신
+            bp = newbp;
+            bsize = GET_SIZE(HDRP(bp));
+
+            // 병합된 크기가 맞다면 리턴
+            if (bsize >= asize)
+                return bp;
+            // 이 블록도 안맞으면 다음 블록으로 계속
         }
     }
-    return best_bp;  // NULL이거나 가장 잘 맞는 블록
+    return NULL;
 }
 
 /* place: 가용 블록 bp에 asize 크기로 할당, 남으면 분할 처리 */
@@ -243,7 +251,7 @@ void mm_free(void *bp)
 
     PUT(HDRP(bp), PACK(size, 0));     // 헤더를 가용 상태로 설정
     PUT(FTRP(bp), PACK(size, 0));     // 푸터를 가용 상태로 설정
-    coalesce(bp);                     // 인접 가용 블록들과 병합
+    //coalesce(bp);                     // 인접 가용 블록들과 병합
 }
 
 /*
